@@ -1,6 +1,5 @@
 #!/bin/bash
-# Setup otomatis Geth node + miner untuk jaringan INRI
-# Tested untuk Ubuntu/Debian (apt-based)
+# Setup otomatis Geth node + miner untuk jaringan INRI (Debian/Ubuntu generic)
 
 set -e
 
@@ -8,7 +7,7 @@ set -e
 # 1. KONFIGURASI DASAR
 # =======================
 
-# FIX WALLET (tidak perlu input lagi)
+# FIX WALLET (tidak perlu input)
 MINER_WALLET="0x98be626a1725ee2294761de540AEc88dbcb44184"
 
 DATADIR="/root/inri"               # folder data chain
@@ -19,6 +18,7 @@ MINER_THREADS=4                    # sesuaikan vCPU
 SERVICE_NAME="inri-geth"
 
 GENESIS_URL="https://rpc.inri.life/genesis.json"
+GETH_TARBALL_URL="https://gethstore.blob.core.windows.net/builds/geth-linux-amd64-latest.tar.gz"
 
 echo "=============================="
 echo "  Setup Geth + Miner INRI"
@@ -33,22 +33,60 @@ echo ""
 
 echo "🔧 Update paket & install dependency..."
 apt update -y
-apt install -y curl software-properties-common
+apt install -y curl
 
-# Install Geth
+# =======================
+# 3. CEK / INSTALL GETH (BINARY RESMI)
+# =======================
+
 if command -v geth >/dev/null 2>&1; then
   echo "✅ Geth sudah terinstall: $(geth version | head -n 1)"
 else
-  echo "⬇️ Menginstall Geth..."
-  add-apt-repository -y ppa:ethereum/ethereum || true
-  apt update -y
-  apt install -y geth
+  echo "⬇️ Geth belum ada, mendownload binary resmi..."
+
+  TMPDIR="$(mktemp -d)"
+  cd "$TMPDIR"
+
+  echo "📥 Download: $GETH_TARBALL_URL"
+  curl -fSLo geth.tar.gz "$GETH_TARBALL_URL"
+
+  echo "📂 Extract..."
+  tar -xzf geth.tar.gz
+
+  # Cari folder geth-linux-*
+  GETH_DIR="$(find . -maxdepth 1 -type d -name 'geth-linux-*' | head -n 1)"
+  if [ -z "$GETH_DIR" ]; then
+    echo "❌ ERROR: Folder geth-linux-* tidak ditemukan setelah extract."
+    exit 1
+  fi
+
+  if [ ! -f "$GETH_DIR/geth" ]; then
+    echo "❌ ERROR: Binary geth tidak ditemukan di $GETH_DIR."
+    exit 1
+  fi
+
+  echo "📦 Install geth ke /usr/local/bin/geth ..."
+  install -m 0755 "$GETH_DIR/geth" /usr/local/bin/geth
+
+  cd /
+  rm -rf "$TMPDIR"
+
+  if ! command -v geth >/dev/null 2>&1; then
+    echo "❌ ERROR: Geth masih belum terdeteksi setelah install."
+    exit 1
+  fi
+
   echo "✅ Geth terinstall: $(geth version | head -n 1)"
 fi
 
+# Path binary geth
+GETH_BIN="$(command -v geth)"
+echo "➡️ Geth binary: $GETH_BIN"
+echo ""
+
 
 # =======================
-# 3. DOWNLOAD GENESIS
+# 4. DOWNLOAD GENESIS
 # =======================
 
 echo "📥 Mendownload genesis INRI..."
@@ -58,23 +96,23 @@ echo ""
 
 
 # =======================
-# 4. INIT DATA DIRECTORY
+# 5. INIT DATA DIRECTORY
 # =======================
 
 echo "🧱 Menginisialisasi direktori data..."
 mkdir -p "$DATADIR"
-geth --datadir "$DATADIR" init "$GENESIS_FILE"
+"$GETH_BIN" --datadir "$DATADIR" init "$GENESIS_FILE"
 echo "✅ Init selesai"
 echo ""
 
 
 # =======================
-# 5. SYSTEMD SERVICE
+# 6. SYSTEMD SERVICE
 # =======================
 
 SERVICE_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
 
-echo "📝 Membuat systemd service..."
+echo "📝 Membuat / overwrite systemd service..."
 
 cat > "$SERVICE_PATH" <<EOF
 [Unit]
@@ -87,7 +125,7 @@ Group=root
 Type=simple
 Restart=always
 RestartSec=5
-ExecStart=/usr/bin/geth \\
+ExecStart=$GETH_BIN \\
   --datadir $DATADIR \\
   --networkid $NETWORK_ID --port 30303 \\
   --syncmode full --cache $CACHE_SIZE \\
@@ -106,11 +144,14 @@ echo ""
 
 
 # =======================
-# 6. START SERVICE
+# 7. START SERVICE
 # =======================
 
 echo "🔁 Reload daemon..."
 systemctl daemon-reload
+
+echo "⏹️ Stop service lama (jika ada)..."
+systemctl stop "$SERVICE_NAME" 2>/dev/null || true
 
 echo "▶️ Enable service..."
 systemctl enable "$SERVICE_NAME"
@@ -120,7 +161,7 @@ systemctl start "$SERVICE_NAME"
 
 sleep 2
 
-systemctl status "$SERVICE_NAME" --no-pager
+systemctl status "$SERVICE_NAME" --no-pager || true
 
 echo ""
 echo "===================================="
@@ -129,5 +170,6 @@ echo "Service name : $SERVICE_NAME"
 echo "Log realtime : journalctl -u $SERVICE_NAME -f"
 echo "Data chain   : $DATADIR"
 echo "Wallet miner : $MINER_WALLET"
+echo "Binary geth  : $GETH_BIN"
 echo "===================================="
 echo ""
