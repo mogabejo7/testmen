@@ -18,7 +18,8 @@ MINER_THREADS=4                    # sesuaikan vCPU
 SERVICE_NAME="inri-geth"
 
 GENESIS_URL="https://rpc.inri.life/genesis.json"
-GETH_TARBALL_URL="https://gethstore.blob.core.windows.net/builds/geth-linux-amd64-latest.tar.gz"
+GETH_TARBALL_URL="https://gethstore.blob.core.windows.net/builds/geth-linux-amd64-1.10.26-e5eb32ac.tar.gz"
+
 
 echo "=============================="
 echo "  Setup Geth + Miner INRI"
